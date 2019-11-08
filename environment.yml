@@ -1,0 +1,9 @@
+name: epnl
+channels:
+  - defaults
+dependencies:
+  - pytorch
+  - pytest
+  - pandas
+prefix: /Users/alex/anaconda3/envs/epnl
+
