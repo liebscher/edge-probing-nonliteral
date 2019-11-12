@@ -1,5 +1,6 @@
 import pytest as pt
 
+from epnl import tasks
 
 class TestTask:
 
