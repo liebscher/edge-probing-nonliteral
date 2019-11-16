@@ -8,11 +8,11 @@ from os import path
 
 import numpy as np
 import torch as tt
-import pandas as pd
 
+from epnl import data
 
 predetermined_data = {
-    'metaphor': 'data/test.csv'
+    'metaphor': {'path': 'data/test.csv', 'set': data.TestDataSet}
 }
 
 
@@ -22,17 +22,17 @@ class Task:
         self._name = name
         self._n_classes = n_classes
         self._embedder = embedder
+        self._data_path = ""
 
-    def setup_data(self):
+    def setup_data_path(self):
         try:
-            return path.join(path.dirname(path.abspath(__file__)), predetermined_data[self._name])
+            return path.join(path.dirname(path.abspath(__file__)), predetermined_data[self._name]["path"])
         except:
             logger.error(f"Task name unknown: {self._name}")
 
-    def load_data_generator(self):
-        data = pd.read_csv(self._data_path)
-        logger.debug(f"Data loaded for {self._name} of {data.shape} shape")
-        return data
+    def get_data(self):
+        loader = predetermined_data[self._name]["set"]
+        return loader(self._data_path)
 
     def get_name(self):
         return self._name
@@ -54,8 +54,7 @@ class EdgeProbingTask(Task):
 
         super(EdgeProbingTask, self).__init__(name, n_classes, **kwargs)
 
-        self._data_path = path if path else self.setup_data()
-        self._data = None
+        self._data_path = path if path else self.setup_data_path()
 
         logger.debug("Initializing new EdgeProbingTask")
 

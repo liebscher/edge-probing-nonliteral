@@ -8,7 +8,7 @@ import numpy as np
 import torch as tt
 import torch.nn as nn
 import torch.optim as op
-import transformers as tm
+from torch.utils.data import DataLoader
 
 import torch as tt
 import torch.nn as nn
@@ -24,7 +24,8 @@ def train_model(model, args, task, train_params):
 
     logger.info("Training Model")
 
-    data_gen = task.load_data_generator()
+    data = task.get_data()
+    dataloader = DataLoader(data, batch_size=train_params["batch_size"], shuffle=True, num_workers=2)
 
     criterion, optimizer = get_criterion_loss_function(model, task)
 
@@ -32,12 +33,15 @@ def train_model(model, args, task, train_params):
     while not stop:
         # batch train
 
-        for x in data_gen:
-            pass
+        for i_batch, batch in enumerate(dataloader):
+            # print(i_batch, batch)
 
-            # optimizer.zero_grad()
-            #
-            # outputs = model(x)
+            optimizer.zero_grad()
+
+            outputs = model(batch)
+
+            print(outputs)
+
             # loss = criterion(outputs, y)
             #
             # loss.backward()
@@ -123,10 +127,20 @@ class EdgeProbingModel(nn.Module):
         """
         out = dict()
 
-        span_embedding = self._pooler() if self._pooler else batch
-        logits = self._classifier(span_embedding)
+        span_tokens = [self._embedder.tokenize(seq) for seq in batch["sequence"]]
+        # print(batch["sequence"][0], span_tokens[0])
 
-        out["logits"] = logits
+        span_embeddings = [self._embedder.embed(seq) for seq in span_tokens]
+
+        print(span_embeddings[0].size())
+
+        mask = []
+
+        # span_embedding = self._pooler(span_embedding, mask) if self._pooler else span_embedding
+
+        # logits = self._classifier(span_embeddings)
+
+        # out["logits"] = logits
 
         return out
 
