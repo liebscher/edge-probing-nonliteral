@@ -12,6 +12,9 @@ from torch.utils.data import DataLoader
 
 import torch as tt
 import torch.nn as nn
+import torch.nn.functional as F
+
+tt.manual_seed(43)
 
 def get_criterion_loss_function(model, task):
     critf = nn.CrossEntropyLoss()
@@ -24,61 +27,54 @@ def train_model(model, args, task, train_params):
 
     logger.info("Training Model")
 
+    # fetch data for this task
     data = task.get_data()
+    # load the data into a PyTorch loader
     dataloader = DataLoader(data, batch_size=train_params["batch_size"], shuffle=True, num_workers=2)
 
     criterion, optimizer = get_criterion_loss_function(model, task)
+
+    epoch = 1
+
+
 
     stop = False
     while not stop:
         # batch train
 
+        t_loss = tt.zeros(1)
+
+        logger.debug(f"Training task {task.get_name()}: epoch [{epoch}]")
+
         for i_batch, batch in enumerate(dataloader):
-            # print(i_batch, batch)
+            # print(f"Batch: {i_batch}")
 
             optimizer.zero_grad()
 
             outputs = model(batch)
 
-            print(outputs)
+            loss = outputs['loss']
+            t_loss += loss
 
-            # loss = criterion(outputs, y)
-            #
-            # loss.backward()
-            #
-            # optimizer.step()
+            # print(loss)
 
-        break
+            loss.backward()
+
+            optimizer.step()
+
+        epoch += 1
+
+        logger.debug(f"Loss: [{t_loss.item() / train_params['batch_size']:.2f}]")
+
+        if epoch == 10:
+            stop = True
+
+    logger.info(f"Finished training task {task.get_name()}: epochs [{epoch}], " +
+                f"loss [{t_loss.item() / train_params['batch_size']:.2f}]")
 
 def save_model(model, optimizer, path):
 
     logger.info("Saved Model")
-
-
-class Pooler(nn.Module):
-    """
-    Perform pooling, potentially with a projection layer beforehand.
-    """
-
-    def __init__(self, project=True, inp_dim=512, out_dim=512, pooling_type="max"):
-        super(Pooler, self).__init__()
-        self._projector = nn.Linear(inp_dim, out_dim) if project else lambda x: x
-        self._pooling_type = pooling_type
-        self._sequence = None
-
-        logger.debug(f"Initializing new Pooler - project: {project}, input dims: {inp_dim}, output dims: {out_dim}, " +
-                     f"type: {pooling_type}")
-
-    def forward(self, sequence, mask):
-
-        self._sequence = self._projector(sequence)
-
-        if self._pooling_type == "mean":
-            pass
-        elif self._pooling_type == "max":
-            pass
-
-        return self._sequence
 
 
 class Classifier(nn.Module):
@@ -88,7 +84,8 @@ class Classifier(nn.Module):
 
     def __init__(self, inp_dim, n_classes):
         super(Classifier, self).__init__()
-        # Start with a simple linear classifier
+
+        # Make a simple linear classifier
         self._classifier = nn.Linear(inp_dim, n_classes)
 
         logger.debug(f"Initializing new Classifier - input dims: {inp_dim}, output dims: {n_classes}")
@@ -104,52 +101,67 @@ class EdgeProbingModel(nn.Module):
     Given a task and dataset, train a model of the contextual embeddings encoded information.
     """
 
-    def __init__(self, task, embedder, args):
+    def __init__(self, task, embedder):
         super(EdgeProbingModel, self).__init__()
         self._task = task
 
         self._embedder = embedder
 
-        # either create a pooling object or don't
-        self._pooler = Pooler(
-            args["pooling-project"]
-        ) if args["pooling"] else None
+        # # either create a pooling object or don't
+        # self._pooler = Pooler(
+        #     args["pooling-project"],
+        #     self._embedder.get_dims(),
+        #     self._embedder.get_dims(),
+        #     args["pooling-type"]
+        # ) if args["pooling"] else None
 
         # create a MLP classifier for the task
-        self._classifier = Classifier(512, task.get_output_dims())
+        self._classifier = Classifier(self._embedder.get_dims(), task.get_output_dims())
 
         logger.debug(f"Initializing new EdgeProbingModel - task: {task.get_name()}")
-
 
     def forward(self, batch):
         """
         Forward pass for Edge Probing models. Extract the appropriate span(s) and classify them, compute loss.
+
+        We take in a list of contextual vectors and integer spans, then use a projection layer, then pool.
+
+        These span representations are concated and fed into MLP with sigmoid output
         """
         out = dict()
 
-        span_tokens = [self._embedder.tokenize(seq) for seq in batch["sequence"]]
-        # print(batch["sequence"][0], span_tokens[0])
+        # we start with sentence
+        # then we tokenize
+        # then we embed
+        # from this embedding, we need _only_ the embeddings within spans
+        # project these sets of spans
+        # pool each span into itself
+        # ^^ happens in data.py ^^
+        # concat the spans
+        # MLP and output
 
-        span_embeddings = [self._embedder.embed(seq) for seq in span_tokens]
+        # pools = [self._pooler(span) for span in batch["span1"]]
 
-        print(span_embeddings[0].size())
+        logits = [tt.sigmoid(self._classifier(sp)) for sp in batch["span1"]]
 
-        mask = []
+        out["logits"] = logits
 
-        # span_embedding = self._pooler(span_embedding, mask) if self._pooler else span_embedding
+        # print(logits)
+        # print(batch["target"])
 
-        # logits = self._classifier(span_embeddings)
-
-        # out["logits"] = logits
+        if "target" in batch:
+            out["loss"] = self.compute_loss(tt.cat(logits), batch["target"])
 
         return out
 
-    def compute_loss(self):
+    def compute_loss(self, logits, targets):
         """
         Compute loss for the given batch on the specified task
         """
 
-        return 0
+        # print(logit, tt.sigmoid(logit), target)
+
+        return F.binary_cross_entropy(logits, targets)
 
     def __repr__(self):
         return f"<epnl.model.EdgeProbingModel object [N: {self._n_classes} E: {self._embedder} D: {self._data}]>"

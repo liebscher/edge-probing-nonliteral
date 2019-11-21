@@ -17,7 +17,9 @@ predetermined_data = {
 
 
 class Task:
-
+    """
+    Interface (probably inherited) for a generic Task
+    """
     def __init__(self, name, n_classes, embedder):
         self._name = name
         self._n_classes = n_classes
@@ -31,8 +33,9 @@ class Task:
             logger.error(f"Task name unknown: {self._name}")
 
     def get_data(self):
+        # these sets are defined at the top of this file
         loader = predetermined_data[self._name]["set"]
-        return loader(self._data_path)
+        return loader(self._data_path, self._embedder)
 
     def get_name(self):
         return self._name
@@ -49,6 +52,9 @@ class Task:
 
 
 class EdgeProbingTask(Task):
+    """
+    Interface for an Edge Probing Task
+    """
 
     def __init__(self, name, n_classes, path, **kwargs):
 

@@ -34,7 +34,7 @@ def build_model(args, tasks, embedder):
     if "pooling-type" not in args and args["pooling"]:
         args["pooling-type"] = "max"
 
-    _model = model.EdgeProbingModel(tasks, embedder, args)
+    _model = model.EdgeProbingModel(tasks, embedder)
 
     return _model
 
@@ -47,6 +47,7 @@ def build_embedder(args):
     if "embedder" in args:
         _embedder = embedding.embedder_from_str(args["embedder"])
     else:
+        # use default embedder transformer
         _embedder = embedding.BERTEmbedder()
 
     return _embedder
@@ -69,7 +70,7 @@ def build_tasks(args):
     for t in _strtasks:
         if t == "metaphor":
             # TODO: what is path?
-            _tasks.append(tasks.EdgeProbingTask("metaphor", 2, "", embedder = _embedder))
+            _tasks.append(tasks.EdgeProbingTask("metaphor", 1, "", embedder = _embedder))
         else:
             raise Exception("Task not recognized: \"{t}\"")
 
@@ -121,7 +122,7 @@ def main():
         _model = build_model(model_setup, _task, _embedder)
 
         train_params = {
-            "batch_size": 16
+            "batch_size": 8
         }
 
         model.train_model(_model, args, _task, train_params)
