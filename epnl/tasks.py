@@ -6,9 +6,6 @@ logger = logging.getLogger('epnl')
 
 from os import path
 
-import numpy as np
-import torch as tt
-
 from epnl import data
 
 predetermined_data = {
@@ -17,14 +14,14 @@ predetermined_data = {
         'path_train': 'data/trofi/train.csv',
         'path_test': 'data/trofi/test.csv',
         'path_dev': 'data/trofi/dev.csv',
-        'double': True,
+        'double': False,
         'set': data.TroFiDataSet
     },
     'dpr': {
         'path_train': 'data/dpr/train.json',
         'path_test': 'data/dpr/test.json',
         'path_dev': 'data/dpr/dev.json',
-        'double': False,
+        'double': True,
         'set': data.DPRDataSet
     }
 }

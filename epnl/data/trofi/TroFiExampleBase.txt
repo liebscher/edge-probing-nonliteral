@@ -4474,7 +4474,6 @@ wsj78:5912	L	Karen Stern has played the harp surrounded by ice sculptures at a r
 
 *literal cluster*
 wsj42:6791	N	After two hours of this and more , Mr. Grappelli finally came on stage , wearing the loudest plaid shirt you 've ever seen , and impishly , sweetly played circles around everyone , never for a second showing his age ./.
-wsj54:10432	L	Displaying his erudition , however , Mr. Bonin soon says he will handle the position the way Mr. Kasparov himself once played against Grandmaster Ljubomir Ljubojevic , the leading Yugoslav player ./.
 wsj64:1793	N	`` We 'd prefer to soft-play that kind of stuff . ''/''
 
 ********************

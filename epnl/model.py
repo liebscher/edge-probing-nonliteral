@@ -9,7 +9,6 @@ from datetime import timedelta, datetime
 
 import os
 
-import numpy as np
 import torch.optim as op
 from torch.utils.data import DataLoader
 
@@ -80,8 +79,8 @@ def train_model(model, optimizer, task, train_params):
     data_dev = task.get_data(Task.DEV)
 
     # load the data into a PyTorch loader
-    loader_train = DataLoader(data_train, batch_size=train_params["batch_size"], shuffle=True, num_workers=2)
-    loader_dev = DataLoader(data_dev, batch_size=train_params["validation_batch_size"], shuffle=True, num_workers=2)
+    loader_train = DataLoader(data_train, batch_size=train_params["batch_size"], shuffle=True, num_workers=4)
+    loader_dev = DataLoader(data_dev, batch_size=train_params["validation_batch_size"], shuffle=True, num_workers=4)
 
     epoch = 1
 
@@ -243,16 +242,14 @@ class EdgeProbingModel(nn.Module):
         # MLP and output
 
         if self._task.double:
+            assert "span2" in batch, "Task marked as double spans, but no second span found"
             logits = [
-                tt.sigmoid(self._classifier(tt.cat(sp1, sp2))) for sp1, sp2 in zip(batch["span1"], batch["span2"])
+                tt.sigmoid(self._classifier(tt.cat([sp1, sp2]))) for sp1, sp2 in zip(batch["span1"], batch["span2"])
             ]
         else:
             logits = [tt.sigmoid(self._classifier(sp)) for sp in batch["span1"]]
 
         out["logits"] = logits
-
-        # print(logits)
-        # print(batch["target"])
 
         if "target" in batch:
             out["loss"] = self.compute_loss(tt.cat(logits), batch["target"].float())

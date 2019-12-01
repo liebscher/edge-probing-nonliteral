@@ -141,8 +141,8 @@ class DPRDataSet(Dataset):
         self._pooler = Pooler(
             True,
             self._embedder.get_dims(),
-            int(self._embedder.get_dims() / 2),
-            "mean"
+            self._embedder.get_dims(),
+            "max"
         )
 
         self._data = []
@@ -158,30 +158,6 @@ class DPRDataSet(Dataset):
 
     def __getitem__(self, item):
         """
-        {
-            "text": "The bee landed on the flower because it had pollen .",
-            "info":
-                {"split": "train",
-                "source": "recast-dpr"},
-            "targets": [
-                {
-                    "span1": [7, 8],
-                    "span2": [0, 2],
-                    "label": "not-entailed",
-                    "span1_text": "it",
-                    "span2_text": "The bee"
-                },
-                {
-                    "span1": [7, 8],
-                    "span2": [4, 6],
-                    "label": "entailed",
-                    "span1_text": "it",
-                    "span2_text": "the flower"
-                }
-            ]
-        }
-
-
         Parameters
         ----------
         item : int
@@ -290,6 +266,8 @@ class TroFiDataSet(Dataset):
             right = select[self.span1R]
         else:
             right = select[self.span1L]
+
+        assert select[self.span1L]-1 < right, f"Span start not before span end: {select[self.sequence]}"
 
         span1 = match_tokens(embedding[0], ind, select[self.span1L]-1, right)
 
