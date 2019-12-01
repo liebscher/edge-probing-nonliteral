@@ -4,7 +4,6 @@ import logging, logging.config
 logging.config.fileConfig('logging.conf')
 logger = logging.getLogger('epnl')
 
-import numpy as np
 import torch as tt
 import transformers as tm
 
