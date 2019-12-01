@@ -8,7 +8,7 @@ def prep_trofi():
     training_split = 0.75
 
     data = []
-    with open("trofi/TroFiExampleBase.txt", "r") as f:
+    with open("epnl/data/trofi/TroFiExampleBase.txt", "r") as f:
         current_kw = ""
 
         for ix, line in enumerate(f):
