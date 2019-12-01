@@ -6,3 +6,5 @@ __pycache__
 .pytest_cache
 
 edge_probing_nonliteral.egg-info
+
+epnl/output/

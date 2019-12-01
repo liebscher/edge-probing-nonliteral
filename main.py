@@ -7,6 +7,16 @@ logging.config.fileConfig('logging.conf')
 logger = logging.getLogger('epnl')
 
 def check_args(args):
+    """
+
+    Parameters
+    ----------
+    args
+
+    Returns
+    -------
+
+    """
     accepted = [
         "--tasks",
         "--taskpaths",
@@ -23,10 +33,21 @@ def check_args(args):
 def build_model(args, tasks, embedder):
     """
     Based upon the task and embedding schema, build a model to be trained
+
+    Parameters
+    ----------
+    args
+    tasks
+    embedder
+
+    Returns
+    -------
+
     """
 
-    if "pooling" not in args:
-        args["pooling"] = True
+    # if "pooling" not in args:
+
+    args["pooling"] = True
 
     if "pooling-project" not in args and args["pooling"]:
         args["pooling-project"] = True
@@ -42,6 +63,14 @@ def build_model(args, tasks, embedder):
 def build_embedder(args):
     """
     Build an embedding object. Acceptable embeddings may be found in embedding.py
+
+    Parameters
+    ----------
+    args
+
+    Returns
+    -------
+
     """
 
     if "embedder" in args:
@@ -56,6 +85,14 @@ def build_embedder(args):
 def build_tasks(args):
     """
     From the CL arguments, determine the structure of the tasks to be completed
+
+    Parameters
+    ----------
+    args
+
+    Returns
+    -------
+
     """
 
     _embedder = build_embedder(args)
@@ -70,7 +107,11 @@ def build_tasks(args):
     for t in _strtasks:
         if t == "metaphor":
             # TODO: what is path?
-            _tasks.append(tasks.EdgeProbingTask("metaphor", 1, "", embedder = _embedder))
+            _tasks.append(tasks.EdgeProbingTask("metaphor", 1, embedder=_embedder))
+        elif t == "trofi":
+            _tasks.append(tasks.EdgeProbingTask("trofi", 1, embedder=_embedder))
+        elif t == "dpr":
+            _tasks.append(tasks.EdgeProbingTask("dpr", 1, embedder=_embedder))
         else:
             raise Exception("Task not recognized: \"{t}\"")
 
@@ -78,6 +119,12 @@ def build_tasks(args):
 
 
 def main():
+    """
+
+    Returns
+    -------
+
+    """
     logger.info("Run main")
 
     args = len(sys.argv)
@@ -122,10 +169,16 @@ def main():
         _model = build_model(model_setup, _task, _embedder)
 
         train_params = {
-            "batch_size": 8
+            "batch_size": 32,
+            "validation_batch_size": 16,
+            "validation_interval": 5
         }
 
-        model.train_model(_model, args, _task, train_params)
+        _optimizer = model.get_optimizer(_model)
+
+        model.train_model(_model, _optimizer, _task, train_params)
+
+        model.save_model(_model, _optimizer, _task.get_name(), "epnl/output/")
 
     logger.info("Finished")
 
