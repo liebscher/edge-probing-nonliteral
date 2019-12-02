@@ -64,8 +64,8 @@ class Embedder():
         encoded : torch.tensor (1, k, d)
             The tokenized sequence in BOW format
         """
-        ind = [] # the indice map of length of encoding, each element represent which original token
-        encoded_seq = [] # encoded sequence
+        ind = []  # the indice map of length of encoding, each element represent which original token
+        encoded_seq = []  # encoded sequence
 
         # we iterate overall all tokens split by simple whitespace
         for i, tok in enumerate(whitespace_tokenize(sequence)):
@@ -106,9 +106,6 @@ class Embedder():
         """
         with tt.no_grad():
             return self._transformer(sequence)[layer]
-
-    def get_dims(self):
-        pass
 
 
 class BERTEmbedder(Embedder):

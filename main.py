@@ -45,14 +45,10 @@ def build_model(args, tasks, embedder):
 
     """
 
-    # if "pooling" not in args:
-
-    args["pooling"] = True
-
-    if "pooling-project" not in args and args["pooling"]:
+    if "pooling-project" not in args:
         args["pooling-project"] = True
 
-    if "pooling-type" not in args and args["pooling"]:
+    if "pooling-type" not in args:
         args["pooling-type"] = "max"
 
     _model = model.EdgeProbingModel(tasks, embedder)
@@ -100,15 +96,12 @@ def build_tasks(args):
     if "tasks" in args:
         _strtasks = args["tasks"]
     else:
-        _strtasks = ["metaphor"]
+        raise ValueError("Task(s) must be defined as arguments")
 
     _tasks = []
 
     for t in _strtasks:
-        if t == "metaphor":
-            # TODO: what is path?
-            _tasks.append(tasks.EdgeProbingTask("metaphor", 1, embedder=_embedder))
-        elif t == "trofi":
+        if t == "trofi":
             _tasks.append(tasks.EdgeProbingTask("trofi", 1, embedder=_embedder))
         elif t == "dpr":
             _tasks.append(tasks.EdgeProbingTask("dpr", 1, embedder=_embedder))
@@ -120,10 +113,7 @@ def build_tasks(args):
 
 def main():
     """
-
-    Returns
-    -------
-
+    Edge Probing
     """
     logger.info("Run main")
 
@@ -144,13 +134,6 @@ def main():
             model_setup["taskpaths"] = value.split(",")
         elif param == "--embedder":
             model_setup["embedder"] = value
-        elif param == "--pooling":
-            if value == "True":
-                model_setup["pooling"] = True
-            elif value == "False":
-                model_setup["pooling"] = False
-            else:
-                raise TypeError(f"Invalid parameter for pooling: \"{value}\"")
         elif param == "--pooling-project":
             if value == "True":
                 model_setup["pooling-project"] = True
@@ -170,11 +153,12 @@ def main():
 
         train_params = {
             "batch_size": 32,
-            "validation_batch_size": 16,
+            "learning_rate": 1e-4,
+            "validation_batch_size": 32,
             "validation_interval": 5
         }
 
-        _optimizer = model.get_optimizer(_model)
+        _optimizer = model.get_optimizer(_model, train_params)
 
         model.train_model(_model, _optimizer, _task, train_params)
 

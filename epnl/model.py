@@ -19,24 +19,34 @@ import torch.nn.functional as F
 from epnl.tasks import Task
 
 
-def get_optimizer(model):
+def get_optimizer(model, args):
     """
 
     Parameters
     ----------
     model
+    args
+
+    Returns
+    -------
+
+    """
+    return op.Adam(model.parameters(), lr=args["learning_rate"])
+
+
+def validate_model(model, loader, task):
+    """
+
+    Parameters
+    ----------
+    model
+    loader
     task
 
     Returns
     -------
 
     """
-    lossf = op.Adam(model.parameters(), lr=0.001)
-
-    return lossf
-
-
-def validate_model(model, loader, task):
     start_time = time.time()
 
     t_metric = {m: 0.0 for m in task.metrics}
@@ -192,6 +202,62 @@ class Classifier(nn.Module):
         return logits
 
 
+class Pooler(nn.Module):
+    """
+    Perform pooling, potentially with a projection layer beforehand.
+    We need pooling because the tokenizer may split tokens into multiple parts, so we merge those different parts
+    together when necessary.
+    """
+
+    def __init__(self, project=True, inp_dim=512, out_dim=256, pooling_type="max"):
+        """
+
+        Parameters
+        ----------
+        project : bool
+            Should a single layer of linear projection be added __ pooling together span elements
+        inp_dim : int
+            Number of dimensions for input spans
+        out_dim : int
+            Number of dimensions for the output span
+        pooling_type : string
+            The type of pooling to perform. Either "mean", "max", or "sum" (default)
+        """
+        super(Pooler, self).__init__()
+        # projection to reduce token size
+        self._project = project
+        self._projector = nn.Linear(inp_dim, out_dim) if project else lambda x: x
+        self._pooling_type = pooling_type
+
+        logger.debug(f"Initializing new Pooler - project: {project}, input dims: {inp_dim}, output dims: {out_dim}, " +
+                     f"type: {pooling_type}")
+
+    def forward(self, span_sequence):
+        """
+
+        Parameters
+        ----------
+        span_sequence : torch.tensor (S, d)
+            S embedded tokens of d dimensions to be pooled
+
+        Returns
+        -------
+        pool : torch.tensor (d, )
+            Single tensor of pooled token spans
+
+        """
+        if self._project:
+            span_sequence = self._projector(span_sequence)
+
+        if self._pooling_type == "mean":
+            raise NotImplementedError
+            # return tt.mean(span_sequence, dim=0)
+        elif self._pooling_type == "max":
+            return tt.max(span_sequence, dim=1)[0]
+
+        return tt.sum(span_sequence, dim=1)
+
+
 class EdgeProbingModel(nn.Module):
     """
     Given a task and dataset, train a model of the contextual embeddings encoded information.
@@ -210,9 +276,26 @@ class EdgeProbingModel(nn.Module):
 
         self._embedder = embedder
 
+        self._out_dims = 256
+
         # create a MLP classifier for the task
-        self._classifier = Classifier(self._embedder.get_dims() * (int(task.double) + 1),
+        self._classifier = Classifier(self._out_dims * (int(task.double) + 1),
                                       task.get_output_dims())
+
+        # create span1 pooling object
+        self._pooler1 = Pooler(
+            project=True,
+            inp_dim=self._embedder.get_dims(),
+            out_dim=self._out_dims,
+            pooling_type="max"
+        )
+        # create span2 pooling object
+        self._pooler2 = Pooler(
+            project=True,
+            inp_dim=self._embedder.get_dims(),
+            out_dim=self._out_dims,
+            pooling_type="max"
+        )
 
         logger.debug(f"Initializing new EdgeProbingModel - task: {task.get_name()}")
 
@@ -235,28 +318,49 @@ class EdgeProbingModel(nn.Module):
         # then we tokenize
         # then we embed
         # from this embedding, we need _only_ the embeddings within spans
+        # ^^ happens in data.py ^^
         # project these sets of spans
         # pool each span into itself
-        # ^^ happens in data.py ^^
         # concat the spans
         # MLP and output
 
+        # print(batch["embedding1"].size())
+        # print(batch["target"].size())
+
         if self._task.double:
-            assert "span2" in batch, "Task marked as double spans, but no second span found"
-            logits = [
-                tt.sigmoid(self._classifier(tt.cat([sp1, sp2]))) for sp1, sp2 in zip(batch["span1"], batch["span2"])
-            ]
+            assert "embedding2" in batch, "Task marked as double spans, but no second span found"
+
+            span1_pool = self._pooler1(batch["embedding1"])
+            span2_pool = self._pooler2(batch["embedding2"])
+
+            # print(span1_pool.size(), span2_pool.size())
+
+            cat_pool = tt.cat([span1_pool, span2_pool], dim=1)
+
+            # print(cat_pool.size())
+
+            logits = tt.sigmoid(self._classifier(cat_pool)).flatten()
+
+            # print(logits.size())
+
         else:
-            logits = [tt.sigmoid(self._classifier(sp)) for sp in batch["span1"]]
+            span1_pool = self._pooler1(batch["embedding1"])
+
+            # print(span1_pool.size()) # 32 x 256
+
+            logits = tt.sigmoid(self._classifier(span1_pool)).flatten()
+
+            # print(logits.size())
 
         out["logits"] = logits
 
-        if "target" in batch:
-            out["loss"] = self.compute_loss(tt.cat(logits), batch["target"].float())
+        assert "target" in batch, "Target must be included in batch to calculate loss"
+
+        out["loss"] = self.compute_loss(logits, batch["target"].float())
 
         out["metrics"] = {}
         for metric in self._task.metrics:
-            out["metrics"][metric] = self.compute_metric(metric, tt.cat(logits), batch["target"].float())
+            out["metrics"][metric] = self.compute_metric(metric, logits, batch["target"].float())
 
         return out
 
