@@ -23,11 +23,11 @@ def prep_trofi():
                 sent = sp[2].split()
                 ix = 0
                 while ix < len(sent):
-                    if current_kw in sent[ix]:
+                    if sent[ix].lower().startswith(current_kw.lower()):
                         break
                     ix += 1
 
-                data.append({"kw": current_kw, "label": sp[1], "sentence": sp[2].strip(), "kw_ix": ix})
+                data.append({"kw": current_kw, "label": sp[1], "sentence": sp[2].strip().lower(), "kw_ix": ix})
 
     data = pd.DataFrame(data)
     train, test = train_test_split(data, shuffle=True, train_size=training_split)
@@ -39,6 +39,7 @@ def prep_trofi():
     print("TroFi datasets created")
 
 ###
+
 
 if __name__ == '__main__':
     prep_trofi()
