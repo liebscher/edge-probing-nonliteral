@@ -17,6 +17,13 @@ predetermined_data = {
         'double': False,
         'set': data.TroFiDataSet
     },
+    'metonymy': {
+        'path_train': 'data/metonymy/metonymy_training_train.csv',
+        'path_test': 'data/metonymy/metonymy_testing_train.csv',
+        'path_dev': 'data/metonymy/metonymy_training_dev.csv',
+        'double': False,
+        'set': data.MetonymyDataSet
+    },
     'dpr': {
         'path_train': 'data/dpr/train.json',
         'path_test': 'data/dpr/test.json',
@@ -116,8 +123,6 @@ class EdgeProbingTask(Task):
             self.DEV: self.setup_data_path(self.DEV),
         }
 
-        self.metrics = ["acc", "f1"]
-
         logger.debug("Initializing new EdgeProbingTask")
 
     def get_output_dims(self):
@@ -130,7 +135,7 @@ class EdgeProbingTask(Task):
         return self._n_classes
 
     def __repr__(self):
-        return f"<epnl.tasks.EdgeProbingTask object [N: {self._n_classes} E: {self._embedder} D: {self._data}]>"
+        return f"<epnl.tasks.EdgeProbingTask object [N: {self._n_classes} E: {self._embedder}]>"
 
     def __str__(self):
-        return f"EdgeProbingTask <N: {self._n_classes} E: {self._embedder} D: {self._data}>"
+        return f"EdgeProbingTask <N: {self._n_classes} E: {self._embedder}>"

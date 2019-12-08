@@ -19,7 +19,6 @@ def check_args(args):
     """
     accepted = [
         "--tasks",
-        "--taskpaths",
         "--embedder",
         "--pooling",
         "--pooling-project",
@@ -105,6 +104,8 @@ def build_tasks(args):
             _tasks.append(tasks.EdgeProbingTask("trofi", 1, embedder=_embedder))
         elif t == "dpr":
             _tasks.append(tasks.EdgeProbingTask("dpr", 1, embedder=_embedder))
+        elif t == "metonymy":
+            _tasks.append(tasks.EdgeProbingTask("metonymy", 1, embedder=_embedder))
         else:
             raise Exception("Task not recognized: \"{t}\"")
 
@@ -130,8 +131,6 @@ def main():
 
         if param == "--tasks":
             model_setup["tasks"] = value.split(",")
-        elif param == "--taskpaths":
-            model_setup["taskpaths"] = value.split(",")
         elif param == "--embedder":
             model_setup["embedder"] = value
         elif param == "--pooling-project":
@@ -155,14 +154,15 @@ def main():
             "batch_size": 32,
             "learning_rate": 1e-4,
             "validation_batch_size": 32,
-            "validation_interval": 5
+            "validation_interval": 5,
+            "output_path": "epnl/output/"
         }
 
         _optimizer = model.get_optimizer(_model, train_params)
 
         model.train_model(_model, _optimizer, _task, train_params)
 
-        model.save_model(_model, _optimizer, _task.get_name(), "epnl/output/")
+        model.save_model(_model, _optimizer, _task.get_name(), train_params["output_path"])
 
     logger.info("Finished")
 

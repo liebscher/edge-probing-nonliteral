@@ -1,11 +1,12 @@
+import torch as tt
+import transformers as tm
+
 import logging, logging.config
 
 # create logger
 logging.config.fileConfig('logging.conf')
 logger = logging.getLogger('epnl')
 
-import torch as tt
-import transformers as tm
 
 def embedder_from_str(name):
     """
@@ -20,10 +21,15 @@ def embedder_from_str(name):
     """
     if name == "BERT":
         return BERTEmbedder()
+    elif name == "BERTL":
+        return BERTLargeEmbedder()
+    elif name == "GPT2":
+        return GPT2Embedder()
     elif name == "ELMo":
         return ELMoEmbedder()
     else:
         raise TypeError(f"Given embedder name does not exist: \"{name}\"")
+
 
 def whitespace_tokenize(text):
     """Runs basic whitespace cleaning and splitting on a piece of text."""
@@ -107,6 +113,12 @@ class Embedder():
         with tt.no_grad():
             return self._transformer(sequence)[layer]
 
+    def get_dims(self):
+        raise NotImplementedError
+
+    def __str__(self):
+        raise NotImplementedError
+
 
 class BERTEmbedder(Embedder):
     def __init__(self):
@@ -114,7 +126,7 @@ class BERTEmbedder(Embedder):
         Use a BERT embedder from huggingface
         """
         super(BERTEmbedder, self).__init__(
-            tm.BertTokenizer.from_pretrained("bert-base-uncased", do_basic_tokenize = True),
+            tm.BertTokenizer.from_pretrained("bert-base-uncased", do_basic_tokenize=True),
             tm.BertModel.from_pretrained("bert-base-uncased"))
 
         logger.debug("Initializing new BERT Embedder")
@@ -122,15 +134,58 @@ class BERTEmbedder(Embedder):
     def get_dims(self):
         return 768
 
+    def __str__(self):
+        return "BERT"
+
+
+class BERTLargeEmbedder(Embedder):
+    def __init__(self):
+        """
+        Use a BERT embedder from huggingface
+        """
+        super(BERTLargeEmbedder, self).__init__(
+            tm.BertTokenizer.from_pretrained("bert-large-uncased", do_basic_tokenize=True),
+            tm.BertModel.from_pretrained("bert-large-uncased"))
+
+        logger.debug("Initializing new BERT Large Embedder")
+
+    def get_dims(self):
+        return 1024
+
+    def __str__(self):
+        return "BERT-Large"
+
+
+class GPT2Embedder(Embedder):
+    def __init__(self):
+        """
+        Use a GPT2 embedder from huggingface
+        """
+        super(GPT2Embedder, self).__init__(
+            tm.GPT2Tokenizer.from_pretrained("gpt2", do_basic_tokenize=True),
+            tm.GPT2Model.from_pretrained("gpt2"))
+
+        logger.debug("Initializing new GPT2 Embedder")
+
+    def get_dims(self):
+        return 768
+
+    def __str__(self):
+        return "GPT2"
+
+
 class ELMoEmbedder(Embedder):
     def __init__(self):
         """
         Use an ELMo embedder
         TODO
         """
+        # elmo = ElmoEmbedder()
+
         super(ELMoEmbedder, self).__init__(
             tm.BertTokenizer.from_pretrained("bert-base-uncased"),
-            tm.BertModel.from_pretrained("bert-base-uncased"))
+            tm.BertModel.from_pretrained("bert-base-uncased")
+        )
 
         logger.debug("Initializing new ELMo Embedder")
 
