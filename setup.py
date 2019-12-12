@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="edge-probing-nonliteral",
-    version="0.0.1",
+    version="1.0.0",
     author="Alex Liebscher",
     author_email="aliebsch@ucsd.edu",
     description="Edge Probing on Contextual Embeddings on Nonliteral Semantics Tasks",

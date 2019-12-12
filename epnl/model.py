@@ -23,21 +23,44 @@ logger = logging.getLogger('epnl')
 
 def get_optimizer(model, args):
     """
+    By default, use an Adam optimizer
 
     Parameters
     ----------
-    model
-    args
+    model : epnl.EdgeProbingModel
+    args : training params
 
     Returns
     -------
-
+    optimizer
+    scheduler
     """
-    return op.Adam(model.parameters(), lr=args["learning_rate"])
+    opt = op.Adam(model.parameters(), lr=args["learning_rate"])
+
+    # hard code these numbers for now
+    scheduler = op.lr_scheduler.ReduceLROnPlateau(opt,
+                                                  mode="min",
+                                                  factor=0.1,
+                                                  patience=2)
+    return opt, scheduler
 
 
 def get_metric(rates, metric):
-    eps = 1e-7
+    """
+    Calculate certain metrics based on predictions
+
+    Parameters
+    ----------
+    rates : dict
+        True Positves, True Negatives, False Positives, and False Negatives
+    metric : str
+        One of "acc", "f1", or "mcc"
+
+    Returns
+    -------
+    metric : float
+    """
+    eps = 1e-7  # to ensure no division by 0
 
     if metric == "acc":
         return (rates["tp"] + rates["tn"] + eps) / (rates["tp"] + rates["tn"] + rates["fp"] + rates["fn"] + eps)
@@ -58,16 +81,22 @@ def get_metric(rates, metric):
 
 def validate_model(model, loader, task):
     """
+    Validate the model on a held-out dataset not used for training
 
     Parameters
     ----------
-    model
-    loader
-    task
+    model : epnl.EdgeProbingModel
+        A trained model
+    loader : torch.utils.data.DataLoader
+        Predefined utility for loading batches in an iterator
+    task : epnl.EdgeProbingTask
 
     Returns
     -------
-
+    report : dict
+        time : Time the validation began
+        dur : Duration of the total validation iteration
+        metrics : Dictionary of metrics
     """
     start_time = time.time()
 
@@ -77,9 +106,13 @@ def validate_model(model, loader, task):
 
     model.eval()
 
+    t_loss = tt.zeros(1)  # record the loss per epoch
+
     for i_batch, batch in enumerate(loader):
         with tt.no_grad():
             outputs = model(batch)
+
+            t_loss += outputs['loss']
 
             tp, tn, fp, fn = outputs["rates"]
             rates["tp"] += tp
@@ -93,34 +126,41 @@ def validate_model(model, loader, task):
         "mcc": get_metric(rates, "mcc")
     }
 
+    loss = t_loss.item() / (i_batch+1)
+
     # take each metric and divide it by the batch size for a macro metric
-    logger.debug(f"Validation F1 [{timedelta(seconds=time.time() - start_time)}]: {metrics['f1']:.4f}")
+    logger.debug(f"Validation [{timedelta(seconds=time.time() - start_time)}] Loss: {loss:.4f}, metrics: " +
+                 f"{', '.join([f'{m}: {metrics[m]:.4f}' for m in metrics])}")
 
     return {
-        "time": time.time(),
+        "time": start_time,
         "dur": time.time() - start_time,
+        "loss": loss,
         "metrics": metrics
     }
 
 
-def train_model(model, optimizer, task, train_params):
+def train_model(model, optimizer, scheduler, task, train_params):
     """
     Given a task, train a model
 
     Parameters
     ----------
-    model
-    optimizer
-    task
-    train_params
-
-    Returns
-    -------
-
+    model : epnl.EdgeProbingModel
+    optimizer : torch.optim
+    task : epnl.EdgeProbingTask
+    train_params : dict
+        batch_size : int
+        learning_rate : float
+        validation_batch_size : int
+        validation_interval : int
+            Number of epochs between validation checks
+        output_path : str
+            Directory to save models, optimizers, and histories
     """
     logger.info("Training Model")
 
-    # fetch data for this task
+    # prepare data for this task
     data_train = task.get_data(Task.TRAIN)
     data_dev = task.get_data(Task.DEV)
 
@@ -130,22 +170,25 @@ def train_model(model, optimizer, task, train_params):
 
     epoch = 1
     train_reports = []
-    max_val = 0.0
+    min_val = 1e8
     val_reports = []
+    loss_history = []
 
     rates = {"tp": 0, "tn": 0, "fp": 0, "fn": 0}
 
     stop = False
     # continue to train until stopping condition is met
     while not stop:
-        # batch train
 
         start_time = time.time()
 
-        t_loss = tt.zeros(1)
+        t_loss = tt.zeros(1)  # record the loss per epoch
 
         logger.debug(f"Training task {task.get_name()}: epoch [{epoch}]")
 
+        model.train()
+
+        # batch training
         for i_batch, batch in enumerate(loader_train):
             optimizer.zero_grad()
 
@@ -164,14 +207,19 @@ def train_model(model, optimizer, task, train_params):
             loss.backward()
             optimizer.step()
 
+        # get the average batch loss
+        batch_loss = t_loss.item() / (i_batch+1)
+        del t_loss
+        loss_history.append(batch_loss)
         report = {
             "epoch": epoch,
             "time": time.time(),
             "dur": time.time() - start_time,
-            "loss": t_loss.item() / (i_batch+1)
+            "loss": batch_loss
         }
 
-        logger.debug(f"Loss [{timedelta(seconds=report['dur'])}]: [{report['loss']:.4f}]")
+        logger.debug(f"Loss [{timedelta(seconds=report['dur'])}]: {report['loss']:.4f} (with LR: " +
+                     f"{optimizer.state_dict()['param_groups'][0]['lr']})")
 
         metrics = {
             "f1": get_metric(rates, "f1"),
@@ -179,44 +227,50 @@ def train_model(model, optimizer, task, train_params):
             "mcc": get_metric(rates, "mcc")
         }
 
-        logger.debug(f"F1: {metrics['f1']:.4f}")
+        logger.debug(f"Training metrics: {', '.join([f'{m}: {metrics[m]:.4f}' for m in metrics])}")
 
         report["metrics"] = metrics
-
         train_reports.append(report)
 
-        # validation
+        # validation #
         if epoch % train_params["validation_interval"] == 0:
 
+            # validate the model on the development dataset
             val_report = validate_model(model, loader_dev, task)
-
             val_report["epoch"] = epoch
 
             val_reports.append(val_report)
 
-            if "f1" in val_report["metrics"] and val_report["metrics"]["f1"] > max_val:
-                max_val = val_report["metrics"]["f1"]
+            # if the validation model is the lowest val loss seen yet, save it
+            if val_report["loss"] < min_val:
+                min_val = val_report["loss"]
                 save_model(model, optimizer, task.get_name(), train_params["output_path"])
+
+            scheduler.step(val_report["loss"])
+            # print(scheduler.state_dict())
 
         epoch += 1
 
-        if epoch == 25:
+        # stopping condition at 50 epochs
+        if epoch == 40:
             stop = True
 
     # always validate the model as a last step before quitting
     val_report = validate_model(model, loader_dev, task)
-
     val_report["epoch"] = epoch
 
     val_reports.append(val_report)
 
-    if "f1" in val_report["metrics"] and val_report["metrics"]["f1"] > max_val:
+    # save the last model if it sets a lowest val loss
+    if val_report["loss"] < min_val:
         save_model(model, optimizer, task.get_name(), train_params["output_path"])
 
-    save_history(train_reports, val_reports, train_params["output_path"])
+    # save the history of losses, metrics, and epochs
+    save_history(train_reports, val_reports, task.get_name(), train_params["output_path"])
 
+    # note that loss here is just reused from the last training iter
     logger.info(f"Finished training task {task.get_name()}: epochs [{epoch}], " +
-                f"loss [{t_loss.item() / train_params['batch_size']:.4f}]")
+                f"loss [{batch_loss:.4f}]")
 
 
 def save_model(model, optimizer, task_name, path):
@@ -225,13 +279,14 @@ def save_model(model, optimizer, task_name, path):
 
     Parameters
     ----------
-    model
-    optimizer
-    path
+    model : epnl.EdgeProbingModel
+    optimizer : torch.optim
+    path : str
+        Directory to save models
     """
 
-    model_name = f"model-{task_name}-{datetime.strftime(datetime.now(), '%d%b%y-%H-%M')}.pt"
-    opt_name = f"optimizer-{task_name}-{datetime.strftime(datetime.now(), '%d%b%y-%H-%M')}.pt"
+    model_name = f"model-{task_name}-{datetime.strftime(datetime.now(), '%d%b-%H-%M')}.pt"
+    opt_name = f"optimizer-{task_name}-{datetime.strftime(datetime.now(), '%d%b-%H-%M')}.pt"
 
     tt.save(model.state_dict(), os.path.join(path, model_name))
     logger.info(f"Model Saved - {model_name}")
@@ -240,16 +295,27 @@ def save_model(model, optimizer, task_name, path):
     logger.info(f"Model Saved - {opt_name}")
 
 
-def save_history(training_reports, validation_reports, path):
+def save_history(training_reports, validation_reports, task_name, path):
+    """
+    Save a history of the training and validation
+
+    Parameters
+    ----------
+    training_reports : list[]
+    validation_reports : list[]
+    task_name : str
+    path : str
+        Directory to save histories
+    """
     for r in training_reports:
         r["set"] = "train"
 
     for r in validation_reports:
         r["set"] = "val"
 
-    training_reports.extend(validation_reports)
+    training_reports.extend(validation_reports)  # combine training and validation reports into one
 
-    name = f"history-{datetime.strftime(datetime.now(), '%d%b%y-%H-%M')}.json"
+    name = f"history-{task_name}-{datetime.strftime(datetime.now(), '%d%b-%H-%M')}.json"
 
     with open(os.path.join(path, name), "w") as f:
         json.dump(training_reports, f)
@@ -264,15 +330,15 @@ class Classifier(nn.Module):
 
     def __init__(self, inp_dim, n_classes):
         """
-
         Parameters
         ----------
         inp_dim
-        n_classes
+        n_classes : int
+            Number of classes of the target, also |L| in the paper
         """
         super(Classifier, self).__init__()
 
-        # Make a linear classifier
+        # Make a linear classifier, using the architecture used by Tenney et al
         self._classifier = nn.Sequential(
             nn.Linear(inp_dim, 512),
             nn.Tanh(),
@@ -285,6 +351,7 @@ class Classifier(nn.Module):
 
     def forward(self, embedding):
         """
+        Forward pass of the classifier network
 
         Parameters
         ----------
@@ -332,6 +399,7 @@ class Pooler(nn.Module):
 
     def forward(self, span_sequence):
         """
+        Forward pass of the pooling network
 
         Parameters
         ----------
@@ -400,6 +468,7 @@ class EdgeProbingModel(nn.Module):
 
     def forward(self, batch):
         """
+        Forward pass in the network
 
         Parameters
         ----------
@@ -423,6 +492,7 @@ class EdgeProbingModel(nn.Module):
         # concat the spans
         # MLP and output
 
+        # if two spans are present then we must concat them for the MLP
         if self._task.double:
             assert "embedding2" in batch, "Task marked as double spans, but no second span found"
 
@@ -433,15 +503,19 @@ class EdgeProbingModel(nn.Module):
             cat_pool = tt.cat([span1_pool, span2_pool], dim=1)
             # print(cat_pool.size())
 
-            logits = tt.sigmoid(self._classifier(cat_pool)).flatten()
-            # print(logits.size())
+            logits = tt.sigmoid(self._classifier(cat_pool))
+            # print(logits.size(), logits.flatten().size())
 
         else:
             span1_pool = self._pooler1(batch["embedding1"])
             # print(span1_pool.size()) # batch size x out_dims
 
-            logits = tt.sigmoid(self._classifier(span1_pool)).flatten()
+            logits = tt.sigmoid(self._classifier(span1_pool))
             # print(logits.size())
+
+        # For single label targets, we need alignment of dimensions
+        if self._n_classes == 1:
+            logits = logits.flatten()
 
         out["logits"] = logits
         out["loss"] = self.compute_loss(logits, batch["target"].float())
