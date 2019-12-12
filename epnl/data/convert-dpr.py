@@ -1,16 +1,7 @@
-#!/usr/bin/env python
-
-# Script to convert DPR data into edge probing format.
-#
-# Usage:
-#   ./convert-dpr.py --src_dir <dpr_temp_dir> \
-#       -o /path/to/probing/data/dpr
-
 import argparse
 import json
 import os
 import sys
-
 
 def get_dpr_text(filename):
     text2examples = {}

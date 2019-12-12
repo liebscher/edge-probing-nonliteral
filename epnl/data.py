@@ -1,9 +1,3 @@
-import logging, logging.config
-
-# create logger
-logging.config.fileConfig('logging.conf')
-logger = logging.getLogger('epnl')
-
 import json
 
 import pandas as pd
@@ -15,6 +9,12 @@ from torch.utils.data import Dataset
 
 import time
 from datetime import timedelta
+
+import logging, logging.config
+
+# create logger
+logging.config.fileConfig('logging.conf')
+logger = logging.getLogger('epnl')
 
 
 def match_tokens(ind, spanL, spanR):
@@ -45,11 +45,25 @@ def match_tokens(ind, spanL, spanR):
 
 
 def embed_sentences(embedder, sentences):
+    """
+    Given a list of string sentences, embed it into a high-dimensional space with an Embedder (e.g. BERT)
+
+    Parameters
+    ----------
+    embedder : epnl.Embedder
+    sentences : list[str]
+
+    Returns
+    -------
+    indices : list[int]
+    tokens : list[int]
+    embeddings : list[torch.tensor]
+    """
     indices = []
     tokens = []
     embeddings = []
     for sentence in sentences:
-        index, token, enc = embedder.tokenize(sentence)
+        index, token, enc = embedder.tokenize(sentence.lower())
 
         embedding = embedder.embed(enc)
 
@@ -65,7 +79,17 @@ class DPRDataSet(Dataset):
     Use the DPR datasets
     """
 
-    def __init__(self, path, embedder, padding=64):
+    def embed_data(self):
+        logger.debug(f"Embedding {len(self._data):,} sentences for DPR")
+
+        st = time.time()
+        indices, tokens, embedding = embed_sentences(self._embedder, self._data[self.sequence])
+        self._data["indices"] = pd.Series(indices)
+        self._data["embeddings"] = pd.Series(embedding)
+
+        logger.debug(f"Data loaded for DPR in {timedelta(seconds=time.time() - st)}")
+
+    def __init__(self, path, embedder, padding=64, embed=True):
         """
 
         Parameters
@@ -87,20 +111,32 @@ class DPRDataSet(Dataset):
         self.span2R = "span2"
         self.target = "label"
 
+        import copy
+
         self._data = []
         for line in open(path).readlines():
-            self._data.append(json.loads(line))
+            parse = json.loads(line)
+
+            if len(parse["targets"]) == 2:
+                a = copy.deepcopy(parse)
+                del a["targets"]
+                a.update(parse["targets"][0])
+                self._data.append(a)
+
+                b = copy.deepcopy(parse)
+                del b["targets"]
+                b.update(parse["targets"][1])
+                self._data.append(b)
+            elif len(parse["targets"]) == 1:
+                a = copy.deepcopy(parse)
+                del a["targets"]
+                a.update(parse["targets"][0])
+                self._data.append(a)
 
         self._data = pd.DataFrame(self._data)
 
-        logger.debug(f"Embedding {len(self._data):,} sentences for DPR")
-
-        st = time.time()
-        indices, tokens, embedding = embed_sentences(self._embedder, self._data[self.sequence])
-        self._data["indices"] = pd.Series(indices)
-        self._data["embeddings"] = pd.Series(embedding)
-
-        logger.debug(f"Data loaded for DPR in {timedelta(seconds=time.time() - st)}")
+        if embed:
+            self.embed_data()
 
     def __len__(self):
         return len(self._data)
@@ -119,21 +155,15 @@ class DPRDataSet(Dataset):
             target : [ndarray] the target output
         """
         select = self._data.iloc[item]
-        which = np.round(np.random.rand()).astype(int) if len(select["targets"]) == 2 else 0
-
-        # since we don't create the datasets, we'll lowercase them now
-        # ind, tokens, enc = self._embedder.tokenize(select[self.sequence].lower())
-
-        # embedding = self._embedder.embed(enc)
 
         padded_embedding1 = tt.zeros((self._padding, self._embedder.get_dims()))
         padded_embedding2 = tt.zeros((self._padding, self._embedder.get_dims()))
 
-        left1 = select["targets"][which][self.span1L][0]
-        left2 = select["targets"][which][self.span2L][0]
+        left1 = select[self.span1L][0]
+        left2 = select[self.span2L][0]
 
-        right1 = select["targets"][which][self.span1R][1]
-        right2 = select["targets"][which][self.span2R][1]
+        right1 = select[self.span1R][1]
+        right2 = select[self.span2R][1]
 
         span1L, span1R = match_tokens(select["indices"], left1, right1)
         span2L, span2R = match_tokens(select["indices"], left2, right2)
@@ -144,7 +174,7 @@ class DPRDataSet(Dataset):
         sample = {
             "embedding1": padded_embedding1,
             "embedding2": padded_embedding2,
-            "target": 1.0 if select["targets"][which][self.target] == "entailed" else 0.0
+            "target": 1.0 if select[self.target] == "entailed" else 0.0
         }
         return sample
 
@@ -154,7 +184,17 @@ class MetonymyDataSet(Dataset):
     Use the Metonymy datasets from https://www.aclweb.org/anthology/P17-1115/
     """
 
-    def __init__(self, path, embedder, padding=128):
+    def embed_data(self):
+        logger.debug(f"Embedding {len(self._data):,} sentences for Metonymy")
+
+        st = time.time()
+        indices, tokens, embedding = embed_sentences(self._embedder, self._data[self.sequence])
+        self._data["indices"] = pd.Series(indices)
+        self._data["embeddings"] = pd.Series(embedding)
+
+        logger.debug(f"Data loaded for Metonymy in {timedelta(seconds=time.time() - st)}")
+
+    def __init__(self, path, embedder, padding=128, embed=True):
         """
 
         Parameters
@@ -178,21 +218,14 @@ class MetonymyDataSet(Dataset):
 
         self._data = pd.read_csv(path)
 
-        logger.debug(f"Embedding {len(self._data):,} sentences for Metonymy")
-
-        st = time.time()
-        indices, tokens, embedding = embed_sentences(self._embedder, self._data[self.sequence])
-        self._data["indices"] = pd.Series(indices)
-        self._data["embeddings"] = pd.Series(embedding)
-
-        logger.debug(f"Data loaded for Metonymy in {timedelta(seconds=time.time() - st)}")
+        if embed:
+            self.embed_data()
 
     def __len__(self):
         return len(self._data)
 
     def __getitem__(self, item):
         """
-
         Parameters
         ----------
         item : int
@@ -205,10 +238,6 @@ class MetonymyDataSet(Dataset):
             target : [ndarray] the target output
         """
         select = self._data.iloc[item]
-
-        # ind, tokens, enc = self._embedder.tokenize(select[self.sequence])
-
-        # embedding = self._embedder.embed(enc)
 
         padded_embedding = tt.zeros((self._padding, self._embedder.get_dims()))
 
@@ -233,9 +262,18 @@ class TroFiDataSet(Dataset):
     Use the TroFi datasets from https://github.com/sfu-natlang/trofi-metaphor-data
     """
 
-    def __init__(self, path, embedder, padding=64):
-        """
+    def embed_data(self):
+        logger.debug(f"Embedding {len(self._data):,} sentences for TroFi")
 
+        st = time.time()
+        indices, tokens, embedding = embed_sentences(self._embedder, self._data[self.sequence])
+        self._data["indices"] = pd.Series(indices)
+        self._data["embeddings"] = pd.Series(embedding)
+
+        logger.debug(f"Data loaded for TroFi in {timedelta(seconds=time.time() - st)}")
+
+    def __init__(self, path, embedder, padding=64, embed=True):
+        """
         Parameters
         ----------
         path : string
@@ -257,21 +295,14 @@ class TroFiDataSet(Dataset):
 
         self._data = pd.read_csv(path)
 
-        logger.debug(f"Embedding {len(self._data):,} sentences for TroFi")
-
-        st = time.time()
-        indices, tokens, embedding = embed_sentences(self._embedder, self._data[self.sequence])
-        self._data["indices"] = pd.Series(indices)
-        self._data["embeddings"] = pd.Series(embedding)
-
-        logger.debug(f"Data loaded for TroFi in {timedelta(seconds=time.time() - st)}")
+        if embed:
+            self.embed_data()
 
     def __len__(self):
         return len(self._data)
 
     def __getitem__(self, item):
         """
-
         Parameters
         ----------
         item : int
@@ -284,10 +315,6 @@ class TroFiDataSet(Dataset):
             target : [ndarray] the target output
         """
         select = self._data.iloc[item]
-
-        # ind, tokens, enc = self._embedder.tokenize(select[self.sequence])
-
-        # embedding = self._embedder.embed(enc)
 
         padded_embedding = tt.zeros((self._padding, self._embedder.get_dims()))
 
@@ -304,5 +331,99 @@ class TroFiDataSet(Dataset):
             "embedding1": padded_embedding,
             "embedding2": -1.,
             "target": 1.0 if select[self.target] == "L" else 0.0
+        }
+        return sample
+
+
+class RelDataSet(Dataset):
+    """
+    Use the Relation Classification datasets from
+    https://docs.google.com/document/d/1QO_CnmvNRnYwNWu1-QCAeR5ToQYkXUqFeAJbdEhsq7w/preview
+    """
+
+    def embed_data(self):
+        logger.debug(f"Embedding {len(self._data):,} sentences for Relation Classification")
+
+        st = time.time()
+        indices, tokens, embedding = embed_sentences(self._embedder, self._data[self.sequence])
+        self._data["indices"] = pd.Series(indices)
+        self._data["embeddings"] = pd.Series(embedding)
+
+        logger.debug(f"Data loaded for Relation Classification in {timedelta(seconds=time.time() - st)}")
+
+    def __init__(self, path, embedder, padding=64, embed=True):
+        """
+        Parameters
+        ----------
+        path : string
+            Path to a data file
+        embedder : epnl.Embedder
+            An Embedder object to determine how tokens will be tokenizer and embedded into a latent space
+        """
+
+        self._embedder = embedder
+
+        self._padding = padding
+
+        self.sequence = "sentence"
+        self.span1L = "left1"
+        self.span1R = "right1"
+        self.span2L = "left2"
+        self.span2R = "right2"
+        self.target = "relation"
+
+        self.labels = ['Product-Producer12', 'Member-Collection12',
+                       'Entity-Destination12', 'Member-Collection21', 'Component-Whole12',
+                       'Other', 'Message-Topic12', 'Product-Producer21',
+                       'Entity-Origin12', 'Instrument-Agency12', 'Component-Whole21',
+                       'Cause-Effect21', 'Entity-Origin21', 'Message-Topic21',
+                       'Content-Container12', 'Cause-Effect12', 'Instrument-Agency21',
+                       'Content-Container21', 'Entity-Destination21']
+
+        self._data = pd.read_csv(path)
+
+        if embed:
+            self.embed_data()
+
+    def __len__(self):
+        return len(self._data)
+
+    def __getitem__(self, item):
+        """
+        Parameters
+        ----------
+        item : int
+            Index of the item to get from the dataset
+
+        Returns
+        -------
+        sample : dict
+            span1 : [torch.tensor] the pooled tokens for the first span
+            target : [ndarray] the target output
+        """
+        select = self._data.iloc[item]
+
+        padded_embedding1 = tt.zeros((self._padding, self._embedder.get_dims()))
+        padded_embedding2 = tt.zeros((self._padding, self._embedder.get_dims()))
+
+        left1 = select[self.span1L]
+        left2 = select[self.span2L]
+
+        right1 = select[self.span1R]
+        right2 = select[self.span2R]
+
+        span1L, span1R = match_tokens(select["indices"], left1, right1)
+        span2L, span2R = match_tokens(select["indices"], left2, right2)
+
+        padded_embedding1[:(span1R - span1L), :] += select["embeddings"][0][span1L:span1R, :]
+        padded_embedding2[:(span2R - span2L), :] += select["embeddings"][0][span2L:span2R, :]
+
+        label = tt.zeros(len(self.labels))
+        label[self.labels.index(select[self.target])] = 1.0
+
+        sample = {
+            "embedding1": padded_embedding1,
+            "embedding2": padded_embedding2,
+            "target": label
         }
         return sample

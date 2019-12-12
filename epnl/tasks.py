@@ -9,7 +9,6 @@ from os import path
 from epnl import data
 
 predetermined_data = {
-    # 'metaphor': {'path': 'data/test.csv', 'set': data.TestDataSet},
     'trofi': {
         'path_train': 'data/trofi/train.csv',
         'path_test': 'data/trofi/test.csv',
@@ -18,9 +17,9 @@ predetermined_data = {
         'set': data.TroFiDataSet
     },
     'metonymy': {
-        'path_train': 'data/metonymy/metonymy_training_train.csv',
-        'path_test': 'data/metonymy/metonymy_testing_train.csv',
-        'path_dev': 'data/metonymy/metonymy_training_dev.csv',
+        'path_train': 'data/metonymy/metonymy_train.csv',
+        'path_test': 'data/metonymy/metonymy_testing.csv',
+        'path_dev': 'data/metonymy/metonymy_dev.csv',
         'double': False,
         'set': data.MetonymyDataSet
     },
@@ -30,8 +29,52 @@ predetermined_data = {
         'path_dev': 'data/dpr/dev.json',
         'double': True,
         'set': data.DPRDataSet
+    },
+    'rel': {
+        'path_train': 'data/rel/training.csv',
+        'path_test': 'data/rel/testing.csv',
+        'path_dev': 'data/rel/dev.csv',
+        'double': True,
+        'set': data.RelDataSet
     }
 }
+
+
+def get_statistics(task):
+
+    def count_examples(data):
+        return len(data)
+
+    def count_vocab(data):
+        vocab = 0
+        for sentence in data._data[data.sequence]:
+            spl = sentence.split()
+            vocab += len(spl)
+
+        return vocab
+
+    def count_unique(data):
+        vocab = set()
+        for sentence in data._data[data.sequence]:
+            spl = set(sentence.split())
+            vocab = vocab | spl
+
+        return len(vocab)
+
+    partitions = {
+        Task.TRAIN: {},
+        Task.DEV: {},
+        Task.TEST: {}
+    }
+    for partition in partitions:
+        data = task.get_data(partition, embed=False)
+        partitions[partition] = {
+            "n_ex": count_examples(data),
+            "n_tk": count_vocab(data),
+            "n_uq": count_unique(data)
+        }
+
+    return partitions
 
 
 class Task:
@@ -64,12 +107,9 @@ class Task:
         path : string
             An absolute filepath to the data file using the map at the head of this file
         """
-        try:
-            return path.join(path.dirname(path.abspath(__file__)), predetermined_data[self._name][f"path_{partition}"])
-        except:
-            logger.error(f"Task name unknown: {self._name}")
+        return path.join(path.dirname(path.abspath(__file__)), predetermined_data[self._name][f"path_{partition}"])
 
-    def get_data(self, partition):
+    def get_data(self, partition, embed=True):
         """
         Instantiate a dataset object using the map at the head of this file
 
@@ -80,7 +120,7 @@ class Task:
         """
         # these sets are defined at the top of this file
         loader = predetermined_data[self._name]["set"]
-        return loader(self._data_paths[partition], self._embedder)
+        return loader(self._data_paths[partition], self._embedder, embed=embed)
 
     def get_name(self):
         """
